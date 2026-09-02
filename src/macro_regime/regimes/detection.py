@@ -28,12 +28,30 @@ from macro_regime.config import RANDOM_STATE
 logger = logging.getLogger(__name__)
 
 
-def _softmax_from_score(score: np.ndarray, temperature: float) -> np.ndarray:
-    """exp(-score / T), row-normalised. `score` is a distance in step 1 and a
-    similarity in step 2 — kept identical to the original formulation so the
-    regime probabilities reproduce exactly."""
-    weights = np.exp(-score / temperature)
-    return weights / weights.sum(axis=1, keepdims=True)
+def _softmax(logits: np.ndarray) -> np.ndarray:
+    """Row-wise softmax, shifted for numerical stability."""
+    z = logits - logits.max(axis=1, keepdims=True)
+    w = np.exp(z)
+    return w / w.sum(axis=1, keepdims=True)
+
+
+def _probs_from_distance(distance: np.ndarray, temperature: float) -> np.ndarray:
+    """Closer centroid -> higher probability."""
+    return _softmax(-distance / temperature)
+
+
+def _probs_from_similarity(similarity: np.ndarray, temperature: float) -> np.ndarray:
+    """More similar centroid -> higher probability.
+
+    Step 2 measures cosine similarity, and the old code pushed it through the
+    same exp(-score/T) the distance step uses. That inverts the ranking: with
+    T = 0.5 a centroid the month points straight at (cos = 1) scored exp(-2) =
+    0.135 while the one pointing the opposite way (cos = -1) scored exp(2) =
+    7.39, fifty-five times more weight. Out-of-sample months were being assigned
+    to roughly the least similar sub-regime available, and argmax then made that
+    the reported label.
+    """
+    return _softmax(similarity / temperature)
 
 
 class RegimeDetector:
@@ -91,14 +109,30 @@ class RegimeDetector:
         logger.info("Regimes found: %d (1 crisis + %d typical)", self.n_regimes_, self.best_k_)
         return labels, pca_train
 
+    #: Fewer sub-regimes than this and the clusters stop describing distinct
+    #: macro states; the original run fixed it at 4.
+    MIN_RICH_K = 4
+
     def _choose_k(self, unit_data: np.ndarray) -> int:
-        """Pick k by silhouette over k_min..k_max, preferring k>=4 for regime richness."""
-        best_k, best_score = 5, -np.inf
-        for k in range(self.k_min, self.k_max + 1):
+        """Pick k by silhouette over k_min..k_max, preferring k >= MIN_RICH_K.
+
+        The old loop scored every k but only let k >= 4 win, starting from a
+        hardcoded best_k of 5. Ask for k_max = 3 and nothing was eligible, so it
+        returned 5 - a k outside the range it was given, and one it had never
+        scored. The richness floor is now applied to the candidate range, and if
+        that leaves nothing the best k in the requested range wins on merit.
+        """
+        candidates = [k for k in range(self.k_min, self.k_max + 1) if k >= self.MIN_RICH_K]
+        if not candidates:
+            candidates = list(range(self.k_min, self.k_max + 1))
+            logger.warning("no k in [%d, %d] reaches the richness floor of %d; scoring the range as given",
+                           self.k_min, self.k_max, self.MIN_RICH_K)
+        best_k, best_score = candidates[0], -np.inf
+        for k in candidates:
             labels = KMeans(n_clusters=k, random_state=self.random_state, n_init=20).fit_predict(unit_data)
             score = silhouette_score(unit_data, labels)
             logger.debug("k=%d silhouette=%.3f", k, score)
-            if score > best_score and k >= 4:
+            if score > best_score:
                 best_k, best_score = k, score
         return best_k
 
@@ -117,13 +151,13 @@ class RegimeDetector:
         x = pca.values
 
         # P(crisis), P(typical) from distance to the step-1 centroids.
-        p_step1 = _softmax_from_score(euclidean_distances(x, self.centroids_step1_), self.crisis_temperature)
+        p_step1 = _probs_from_distance(euclidean_distances(x, self.centroids_step1_), self.crisis_temperature)
         p_crisis = p_step1[:, self.crisis_label_]
         p_typical = p_step1[:, self.typical_label_]
 
         # P(sub-regime | typical) from cosine similarity to the step-2 centroids.
         sims = cosine_similarity(normalize(x), self.centroids_step2_)
-        p_sub = _softmax_from_score(sims, self.regime_temperature)
+        p_sub = _probs_from_similarity(sims, self.regime_temperature)
 
         # Law of total probability, then renormalise.
         probs = np.zeros((len(x), self.n_regimes_))

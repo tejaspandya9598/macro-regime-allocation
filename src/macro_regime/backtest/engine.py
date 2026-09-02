@@ -10,6 +10,13 @@ one rolling loop so they see identical inputs:
 Naive and Ridge need at least two regimes in the lookback to be meaningful, so
 they sit out (no position recorded) on windows that don't have them — which is
 why their track records can be a few months shorter than MVO's.
+
+One thing this loop has to get right: FRED-MD for month M is not published until
+the middle of month M+1. Allocating for month M on month M's own regime is a
+look-ahead of one to two months, and on a macro strategy that is most of the
+edge. `SIGNAL_LAG` shifts the regime labels, the probabilities and the PCA
+factors forward so each month is positioned on what a desk would actually have
+had in hand. Set it to 0 to reproduce the contemporaneous numbers.
 """
 from __future__ import annotations
 
@@ -25,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW = 48  # 4 years of monthly data
 
+#: Months of publication delay on the macro panel. FRED-MD's vintage for month M
+#: lands mid-M+1, so a position taken at the start of month M can only use M-1.
+SIGNAL_LAG = 1
+
 
 def create_regime_probs(regime: int, n_regimes: int, confidence: float = 0.8) -> list[float]:
     """Spread a hard regime label into a soft vector: `confidence` on the called
@@ -35,15 +46,36 @@ def create_regime_probs(regime: int, n_regimes: int, confidence: float = 0.8) ->
     return probs.tolist()
 
 
+def _lag_signals(merged: pd.DataFrame, component_names: list[str] | None,
+                 lag: int) -> pd.DataFrame:
+    """Shift the macro-derived columns forward by `lag` months and drop the stub."""
+    if lag <= 0:
+        return merged
+    cols = [c for c in ("regime", "regime_probs", *(component_names or [])) if c in merged.columns]
+    out = merged.copy()
+    out[cols] = out[cols].shift(lag)
+    out = out.iloc[lag:].reset_index(drop=True)
+    out["regime"] = out["regime"].astype(int)
+    logger.info("Applied a %d-month publication lag to %s", lag, ", ".join(cols))
+    return out
+
+
 def run_backtests(
     merged: pd.DataFrame,
     asset_cols: list[str],
     component_names: list[str] | None = None,
     window: int = DEFAULT_WINDOW,
+    signal_lag: int = SIGNAL_LAG,
 ) -> dict[str, dict]:
     """Run every strategy over `merged` (returns + 'regime' + 'regime_probs', and
-    the PCA `component_names` if Ridge is wanted). Returns {name: {returns, dates}}."""
+    the PCA `component_names` if Ridge is wanted). Returns {name: {returns, dates}}.
+
+    `signal_lag` months of publication delay are applied to every macro-derived
+    column before the loop starts, so nothing in a month's allocation postdates
+    that month.
+    """
     use_ridge = bool(component_names) and all(c in merged.columns for c in component_names)
+    merged = _lag_signals(merged, component_names if use_ridge else None, signal_lag)
     n_assets = len(asset_cols)
     eq_weights = np.ones(n_assets) / n_assets
 
@@ -58,6 +90,7 @@ def run_backtests(
         series[name]["returns"].append(ret)
         series[name]["dates"].append(date)
 
+    allocation.reset_solver_failures()
     for t in range(window, len(merged)):
         win = merged.iloc[t - window:t]
         cur = merged.iloc[t]
@@ -102,6 +135,10 @@ def run_backtests(
         name: {"returns": np.array(d["returns"]), "dates": d["dates"]}
         for name, d in series.items() if d["returns"]
     }
+    failures = allocation.reset_solver_failures()
+    if failures:
+        logger.warning("SLSQP fell back to equal weight on %d of %d optimisations",
+                       failures, 4 * (len(merged) - window))
     logger.info("Backtest done: %d strategies, %d months", len(results), len(merged) - window)
     return results
 
