@@ -2,18 +2,23 @@
 
 Detect the prevailing macro regime from 120+ FRED-MD indicators (PCA → two-step
 KMeans), then tilt a global-equity book toward what has historically paid off in
-that regime. On a 1959–2025 walk-forward backtest the regime-aware strategies earn
-roughly **2× the annual return of an equal-weight benchmark** at a comparable or
-better Sharpe.
+that regime. On a walk-forward backtest the best regime-aware long-only book earns
+**11.2% a year against an equal-weight benchmark's 5.6%** in MSCI developed — very
+close to 2× — and 7.5% against 6.0% in emerging, which is not.
 
-A second layer asks whether any of that survives trading costs. Position sizing is
+Every macro input is lagged one month before it is used. FRED-MD's vintage for
+month M is not published until the middle of M+1, so a book positioned for month M
+can only see M-1. That one line changes the answer everywhere, and most of what
+follows is the shape of the result after it.
+
+A second layer asks whether any of it survives trading costs. Position sizing is
 reformulated as a **convex program with transaction costs inside the objective**
-(cvxpy, MOSEK-first solver policy) and solved over a receding horizon on a
-Markov-projected regime forecast. The headline finding is not that the cost-aware
-optimiser wins everywhere — below ~13bps it doesn't — but that its net Sharpe is
-**nearly invariant to the cost assumption** (0.50–0.52 from 0 to 100bps) while the
-frictionless book's decays to **negative** over the same range. See
-[Trading costs](#trading-costs-the-convex-layer).
+(cvxpy, MOSEK-first solver policy with an open-source conic fallback) and solved
+over a receding horizon on a Markov-projected regime forecast. With the lag in
+place the receding-horizon book wins at **every** cost level in developed markets,
+from 0 to 100bps, and its net Sharpe degrades gently — 0.68 to 0.51 across a 20×
+move in the cost assumption — while the frictionless book falls from 0.36 to
+**−0.86**. See [Trading costs](#trading-costs-the-convex-layer).
 
 ![Detected macro regimes](results/regime_timeline.png)
 
@@ -31,33 +36,39 @@ backtest against an equal-weight benchmark across developed and emerging equitie
 
 ## Results
 
-Walk-forward, monthly, 48-month lookback, 248 out-of-sample months. Returns are
-volatility-scaled to 10% annual for comparison. Sharpe/Sortino are ratios; the rest
-are percentages.
+Walk-forward, monthly, 48-month lookback. The MSCI sector panels run 2001-01 to
+2025-10 (10 sectors each); intersected with the FRED-MD regime dates that is 296
+months, less the 48-month lookback and the one-month publication lag, leaving **247
+out-of-sample months**. Sharpe/Sortino are ratios; the rest are percentages.
+
+These are raw strategy returns — nothing here is volatility-scaled, which is why the
+Ann. Vol column ranges from 15% to 24% and why the Sharpe column is the one to read
+across rows. (The *equity-curve charts* are vol-targeted to a common 10% so the
+shapes are comparable; the tables are not.)
 
 **Developed markets**
 
 | Strategy | Sharpe | Sortino | Ann. Return | Ann. Vol | Max DD | Hit Rate |
 |---|---|---|---|---|---|---|
-| Naive Long-Short | **0.76** | 1.05 | 14.97 | 19.67 | 48.81 | 60.9 |
-| Naive Long-Only | 0.69 | 0.91 | 12.44 | 18.14 | 53.25 | 61.7 |
-| Ridge Long-Short | 0.67 | 0.80 | 14.98 | 22.34 | 51.88 | 62.9 |
-| MVO Long-Short | 0.67 | 0.85 | 13.46 | 20.20 | 55.43 | 62.5 |
-| MVO Long-Only | 0.59 | 0.71 | 10.54 | 17.90 | 58.79 | 62.1 |
-| Ridge Long-Only | 0.42 | 0.51 | 8.38 | 19.80 | 47.19 | 60.9 |
-| Equal-Weight (benchmark) | 0.37 | 0.45 | 5.51 | 14.94 | 54.95 | 60.5 |
+| Ridge Long-Short | **0.71** | 1.02 | 13.98 | 19.66 | 51.67 | 61.1 |
+| MVO Long-Short | 0.67 | 0.85 | 13.48 | 20.22 | 55.25 | 62.3 |
+| Ridge Long-Only | 0.64 | 0.87 | 11.23 | 17.41 | 46.91 | 61.5 |
+| MVO Long-Only | 0.59 | 0.72 | 10.61 | 17.93 | 58.79 | 62.3 |
+| Naive Long-Short | 0.52 | 0.65 | 10.25 | 19.80 | 60.72 | 60.7 |
+| Equal-Weight (benchmark) | 0.38 | 0.46 | 5.64 | 14.96 | 54.95 | 60.7 |
+| Naive Long-Only | 0.36 | 0.45 | 6.36 | 17.71 | 61.30 | 59.9 |
 
 **Emerging markets**
 
 | Strategy | Sharpe | Sortino | Ann. Return | Ann. Vol | Max DD | Hit Rate |
 |---|---|---|---|---|---|---|
-| Naive Long-Short | **0.65** | 1.02 | 14.08 | 21.54 | 44.98 | 58.1 |
-| Ridge Long-Short | 0.57 | 0.94 | 12.82 | 22.35 | 47.55 | 56.9 |
-| Naive Long-Only | 0.52 | 0.76 | 10.15 | 19.59 | 47.17 | 59.3 |
-| MVO Long-Only | 0.48 | 0.67 | 10.35 | 21.75 | 60.93 | 57.7 |
-| Ridge Long-Only | 0.44 | 0.64 | 9.36 | 21.20 | 54.18 | 60.5 |
-| MVO Long-Short | 0.36 | 0.48 | 8.49 | 23.86 | 65.27 | 57.7 |
-| Equal-Weight (benchmark) | 0.31 | 0.40 | 5.95 | 19.24 | 61.04 | 57.7 |
+| MVO Long-Only | **0.48** | 0.67 | 10.41 | 21.80 | 60.93 | 57.9 |
+| Naive Long-Short | 0.43 | 0.58 | 9.44 | 22.09 | 60.50 | 57.9 |
+| Naive Long-Only | 0.37 | 0.49 | 7.47 | 20.00 | 56.20 | 56.7 |
+| MVO Long-Short | 0.36 | 0.48 | 8.54 | 23.90 | 65.18 | 57.9 |
+| Equal-Weight (benchmark) | 0.31 | 0.40 | 5.98 | 19.28 | 61.04 | 57.9 |
+| Ridge Long-Only | 0.16 | 0.20 | 3.64 | 22.88 | 68.67 | 55.5 |
+| Ridge Long-Short | 0.16 | 0.23 | 3.81 | 24.15 | 57.04 | 53.4 |
 
 The regime-conditional **Naive** forecaster — just the regime's historical mean
 return — is the consistent winner, a useful reminder that a good state variable
@@ -79,47 +90,65 @@ three ways of choosing the target book, all debited by the *same* cost model:
 | **CostAware** | single-period convex solve with costs inside the objective |
 | **MultiPeriod** | receding-horizon solve over a Markov-projected forecast path |
 
-**Developed, long-only, net of 10bps linear + 20bps quadratic impact:**
+**Developed, long-only, net of 10bps linear + 20bps quadratic impact.** 247 months,
+494 solves, all reaching optimality (CLARABEL; MOSEK is preferred but unlicensed here):
 
 | Strategy | Gross Sharpe | Net Sharpe | Sharpe Lost | Ann. Turnover | Ann. Cost | Net Ann. Return |
 |---|---|---|---|---|---|---|
-| Frictionless | 0.686 | **0.566** | 0.120 | 4.36× | 217 bps | 10.27 |
-| CostAware | 0.606 | 0.531 | 0.075 | 2.99× | 142 bps | 10.02 |
-| MultiPeriod | 0.535 | 0.520 | **0.014** | **0.84×** | **28 bps** | 10.16 |
-| Equal-Weight | 0.369 | 0.367 | 0.002 | 0.13× | 3 bps | 5.49 |
+| **MultiPeriod** | 0.666 | **0.644** | **0.022** | **1.07×** | **39 bps** | **12.02** |
+| CostAware | 0.545 | 0.498 | 0.047 | 2.03× | 85 bps | 9.26 |
+| Equal-Weight | 0.377 | 0.375 | 0.002 | 0.13× | 3 bps | 5.61 |
+| Frictionless | 0.359 | 0.230 | 0.130 | 4.84× | 229 bps | 4.07 |
 
-At 10bps the frictionless book still wins on net Sharpe. That is the honest result
-and it's worth stating plainly: the optimiser cuts turnover 5× and cost drag 8×,
-but gives up enough gross alpha doing it that cheap trading doesn't repay the
-discipline. The interesting question is therefore not "which is better" but **at
-what cost level does the answer flip**:
+The receding-horizon book wins on gross Sharpe, on net Sharpe, on turnover, on cost
+drag and on net return at the same time. That is a suspiciously clean sweep, so it
+is worth saying exactly why it happens: the frictionless book's advantage used to
+come from reading the current month's macro data, and once it is made to trade on
+last month's it has less alpha to spend and still spends 4.8× the turnover buying it.
 
 ![Developed cost sensitivity](results/developed/cost_sensitivity_long_only.png)
 
+**Net Sharpe vs the assumed cost, developed:**
+
 | linear bps | Frictionless | CostAware | MultiPeriod | best |
 |---|---|---|---|---|
-| 0 | 0.686 | 0.636 | 0.498 | Frictionless |
-| 5 | 0.626 | 0.591 | 0.495 | Frictionless |
-| 10 | 0.566 | 0.531 | 0.520 | Frictionless |
-| 15 | 0.506 | 0.478 | **0.521** | MultiPeriod |
-| 25 | 0.385 | 0.412 | **0.509** | MultiPeriod |
-| 50 | 0.086 | 0.354 | **0.464** | MultiPeriod |
-| 100 | **−0.467** | 0.328 | **0.523** | MultiPeriod |
+| 0 | 0.359 | 0.382 | **0.676** | MultiPeriod |
+| 5 | 0.294 | 0.441 | **0.676** | MultiPeriod |
+| 10 | 0.230 | 0.498 | **0.644** | MultiPeriod |
+| 15 | 0.165 | 0.487 | **0.630** | MultiPeriod |
+| 25 | 0.036 | 0.507 | **0.583** | MultiPeriod |
+| 50 | −0.281 | 0.394 | **0.527** | MultiPeriod |
+| 100 | −0.857 | 0.282 | **0.508** | MultiPeriod |
 
-The crossover sits between **12.5 and 15bps** (same ordering in emerging markets,
-which crosses in the same band). Two things are worth more than the crossover
-itself:
+**And emerging**, where the two lines do still cross:
 
-1. **The multi-period line is flat.** Net Sharpe moves 0.498 → 0.523 across a
-   0–100bps sweep. The impact coefficient here is *assumed*, not fitted from ADV or
-   tick data — so a conclusion that survives a 20× move in that assumption is worth
-   considerably more than a single point estimate that doesn't.
-2. **The frictionless line goes negative.** By 100bps the ungoverned book has a
-   Sharpe of −0.47: all of its apparent edge was an artifact of not paying to trade.
+| linear bps | Frictionless | CostAware | MultiPeriod | best |
+|---|---|---|---|---|
+| 0 | **0.373** | 0.325 | 0.330 | Frictionless |
+| 5 | 0.326 | 0.316 | **0.366** | MultiPeriod |
+| 10 | 0.278 | 0.271 | **0.344** | MultiPeriod |
+| 25 | 0.135 | 0.202 | **0.332** | MultiPeriod |
+| 50 | −0.103 | 0.304 | **0.359** | MultiPeriod |
+| 100 | −0.553 | 0.374 | **0.395** | MultiPeriod |
 
-Same net annual return (10.16 vs 10.27) at **one-fifth the turnover** is also the
-capacity argument — the multi-period book is the one that could actually be run at
-size.
+Three things are worth more than the tables themselves.
+
+1. **The multi-period line barely moves.** Developed net Sharpe runs 0.676 → 0.508
+   across a 20× move in the cost assumption; emerging runs 0.330 → 0.395 and is
+   *higher* at 100bps than at zero, because the optimiser simply trades less when
+   trading is expensive. The impact coefficient here is *assumed*, not fitted from
+   ADV or tick data, so a conclusion that survives a 20× move in that assumption is
+   worth considerably more than a point estimate that doesn't.
+2. **The frictionless line goes properly negative.** −0.86 in developed, −0.55 in
+   emerging. Its apparent edge was an artifact of not paying to trade.
+3. **The crossover moved when the look-ahead came out.** It used to sit between 12.5
+   and 15bps in both universes. In developed it is now below zero — the cost-aware
+   book wins even in a frictionless world — and in emerging it sits between 0 and
+   5bps. A finding about *where* two lines cross is a finding about the alpha
+   feeding them, and half that alpha was information the strategy could not have had.
+
+Same or better net annual return at a fifth to a quarter of the turnover is also the
+capacity argument: the multi-period book is the one that could be run at size.
 
 ## The convex program
 

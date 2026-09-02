@@ -31,9 +31,11 @@ import logging
 import numpy as np
 import pandas as pd
 
+from macro_regime.backtest.engine import SIGNAL_LAG, _lag_signals
 from macro_regime.models import allocation
 from macro_regime.models.forecast import NaiveForecastModel
 from macro_regime.models.optimization import (
+    SOLVER_PREFERENCE,
     Constraints,
     CostModel,
     solve_multi_period,
@@ -73,14 +75,21 @@ def run_cost_aware_backtest(
     horizon: int = DEFAULT_HORIZON,
     risk_aversion: float = 1.0,
     long_short: bool = False,
+    signal_lag: int = SIGNAL_LAG,
 ) -> dict[str, dict]:
     """Run the three optimisers plus an equal-weight benchmark through one book each.
 
     Returns {name: {returns (net), gross, costs, turnover, dates, solver}} where
     `returns` is already net of the charge, so downstream metrics need no
     adjustment.
+
+    `signal_lag` carries the same FRED-MD publication delay the walk-forward engine
+    applies. This loop had the identical look-ahead - it read the current month's
+    regime probabilities to size the book that earns the current month's return -
+    and it was fixed one file later than engine.py.
     """
     costs = costs or CostModel()
+    merged = _lag_signals(merged, None, signal_lag)
     constraints = Constraints.long_short_150_50() if long_short else Constraints.long_only_fully_invested()
     n_assets = len(asset_cols)
     eq = np.ones(n_assets) / n_assets
@@ -93,6 +102,7 @@ def run_cost_aware_backtest(
     held: dict[str, np.ndarray] = {name: eq.copy() for name in names}
     solvers_seen: set[str] = set()
     fallback_hits = 0
+    unsolved = 0
     solves = 0
 
     for t in range(window, len(merged)):
@@ -138,6 +148,7 @@ def run_cost_aware_backtest(
         targets["CostAware"] = sp.weights
         solvers_seen.add(sp.solver)
         fallback_hits += int(sp.fell_back)
+        unsolved += int(not sp.solved)
         solves += 1
 
         # 3) Receding-horizon optimiser over the regime-projected forecast path.
@@ -146,6 +157,7 @@ def run_cost_aware_backtest(
         targets["MultiPeriod"] = mp.weights
         solvers_seen.add(mp.solver)
         fallback_hits += int(mp.fell_back)
+        unsolved += int(not mp.solved)
         solves += 1
 
         # 4) Benchmark rebalances back to equal weight, and pays for the privilege.
@@ -177,8 +189,10 @@ def run_cost_aware_backtest(
     }
 
     logger.info(
-        "Cost-aware backtest: %d months, %d solves, solvers=%s, fallbacks=%d, costs=%.0f/%.0fbps p=%.1f",
-        len(merged) - window, solves, sorted(solvers_seen), fallback_hits,
+        "Cost-aware backtest: %d months, %d solves, solvers=%s, %d not solved to "
+        "optimality, %d used a solver other than %s, costs=%.0f/%.0fbps p=%.1f",
+        len(merged) - window, solves, sorted(solvers_seen), unsolved, fallback_hits,
+        SOLVER_PREFERENCE[0],
         costs.linear_bps, costs.impact_bps, costs.exponent,
     )
     for name in results:

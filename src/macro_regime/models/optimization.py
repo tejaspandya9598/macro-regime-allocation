@@ -166,6 +166,15 @@ class OptimizationResult:
     fell_back: bool          # True when the preferred solver was unavailable/failed
 
     @property
+    def solved(self) -> bool:
+        """Did the problem actually reach an optimum, whoever solved it?
+
+        `fell_back` only says the first-choice solver was not the one used, which
+        on a machine without a MOSEK licence is every single solve. Reading it as
+        a failure count made a healthy run look like 494 broken ones."""
+        return self.status in ("optimal", "optimal_inaccurate")
+
+    @property
     def turnover(self) -> float:
         """Conventional one-way turnover, ½Σ|Δᵢ|."""
         return 0.5 * self.traded_notional
