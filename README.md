@@ -150,6 +150,53 @@ Three things are worth more than the tables themselves.
 Same or better net annual return at a fifth to a quarter of the turnover is also the
 capacity argument: the multi-period book is the one that could be run at size.
 
+## Is K-Means the right cut? (`regimes/comparison.py`)
+
+The detector above uses Euclidean K-Means on PCA scores. That makes two
+assumptions, and both are testable rather than obvious:
+
+- **Euclidean distance is the right metric.** K-Means compares two months by the
+  straight line between their factor vectors. A regime is a *distribution*, not a
+  point — two months can sit close together while conditions around them differ.
+- **Months are independent draws.** Shuffle the panel and K-Means returns the same
+  clusters. Macro regimes persist; a classifier free to flip every month is
+  describing noise as much as economics.
+
+So: same 798-month panel, same k = 5, three methods, plus NBER's own dating as an
+outside yardstick. `uv run python scripts/compare_regimes.py`
+
+| method | states | silhouette | Calinski-Harabasz | switches | mean spell |
+|---|--:|--:|--:|--:|--:|
+| KMeans | 5 | **0.054** | **60.6** | 26.1% | **3.8 months** |
+| Wasserstein K-medoids | 5 | −0.018 | 16.0 | **3.4%** | **29.5 months** |
+| Gaussian HMM | 5 | −0.019 | 37.1 | 16.2% | 6.2 months |
+| *NBER dating (9 recessions)* | *2* | — | — | *2.2%* | *44.7 months* |
+
+![Three clusterings of one panel](results/regime_methods.png)
+
+**K-Means wins both cluster-quality scores and is the least believable of the
+three.** Silhouette and Calinski-Harabasz measure separation in Euclidean space,
+which is precisely what K-Means optimises — scoring it on them is circular. The
+column without that bias is the last one, and it says K-Means calls a new macro
+regime every 3.8 months. NBER, over the same window, changes its mind every 45.
+
+A five-state model should switch more than a two-state one. Not twelve times more.
+
+Wasserstein K-medoids lands at 29.5-month spells, the closest of the three to
+something a business cycle would recognise, and it gets there by comparing the
+local distribution around each month under optimal transport rather than the
+month's coordinates. K-medoids rather than K-means because a centroid in
+Wasserstein space is a barycentre with no closed form, while a medoid is just the
+member with the smallest total distance to its cluster.
+
+The HMM sits in between and returns something the other two cannot: a transition
+matrix. Its diagonal is the persistence the model actually learned, and one state
+comes back with a zero self-transition — a single-month state, which is the
+COVID-April artefact showing up as its own regime.
+
+This does not replace the detector. It measures it, and the measurement says the
+production path is the jumpy one.
+
 ## The convex program
 
 The frictionless sizer maximises $w^\top\mu - \tfrac{\gamma}{2}w^\top\Sigma w$ and

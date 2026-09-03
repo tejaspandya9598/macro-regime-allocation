@@ -94,3 +94,61 @@ def test_macro_signals_are_lagged_before_the_loop():
     assert out["regime"].tolist() == [0, 1, 2]            # signal from a month earlier
     assert out["PC1"].tolist() == [10.0, 20.0, 30.0]
     assert _lag_signals(df, ["PC1"], lag=0).equals(df)
+
+
+def test_switch_rate_counts_label_changes():
+    import numpy as np
+
+    from macro_regime.regimes.comparison import switch_rate
+
+    assert switch_rate(np.array([0, 0, 0, 0])) == 0.0
+    assert switch_rate(np.array([0, 1, 0, 1])) == 1.0
+    assert abs(switch_rate(np.array([0, 0, 1, 1, 1])) - 0.25) < 1e-12
+
+
+def test_hmm_recovers_persistent_states_and_a_sticky_transition_matrix():
+    """The point of the HMM here is persistence: K-Means has no notion of time and
+    will happily report a new regime every quarter."""
+    import numpy as np
+
+    from macro_regime.regimes.comparison import hmm_regimes, switch_rate
+
+    rng = np.random.default_rng(0)
+    x = np.vstack([rng.normal(0, 0.4, size=(90, 2)),
+                   rng.normal(4, 0.4, size=(90, 2)),
+                   rng.normal(0, 0.4, size=(90, 2))])
+    labels, trans = hmm_regimes(x, k=2)
+
+    assert len(np.unique(labels)) == 2
+    assert switch_rate(labels) < 0.05                    # two flips in 270 months
+    assert np.allclose(trans.sum(axis=1), 1.0)           # rows are distributions
+    assert np.diag(trans).min() > 0.9                    # and they are sticky
+
+
+def test_wasserstein_kmedoids_separates_distributions_that_share_a_mean():
+    """The case Euclidean K-Means cannot see: same centre, different spread."""
+    import numpy as np
+
+    from macro_regime.regimes.comparison import wasserstein_kmeans
+
+    rng = np.random.default_rng(1)
+    tight = rng.normal(0, 0.2, size=(60, 2))
+    wide = rng.normal(0, 2.5, size=(60, 2))
+    x = np.vstack([tight, wide])
+
+    labels = wasserstein_kmeans(x, k=2, window=5)
+    first, second = labels[:60], labels[60:]
+    # Each true block should be dominated by one label.
+    purity = (np.bincount(first).max() + np.bincount(second).max()) / len(labels)
+    assert purity > 0.75
+
+
+def test_local_distributions_do_not_invent_observations_at_the_edges():
+    import numpy as np
+
+    from macro_regime.regimes.comparison import _local_distributions
+
+    x = np.arange(20, dtype=float).reshape(-1, 1)
+    out = _local_distributions(x, window=3)
+    assert out.shape == (20, 7)
+    assert np.isfinite(out).all()
