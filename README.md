@@ -3,8 +3,10 @@
 Detect the prevailing macro regime from 120+ FRED-MD indicators (PCA → two-step
 KMeans), then tilt a global-equity book toward what has historically paid off in
 that regime. On a walk-forward backtest the best regime-aware long-only book earns
-**11.2% a year against an equal-weight benchmark's 5.6%** in MSCI developed — very
-close to 2× — and 7.5% against 6.0% in emerging, which is not.
+**11.2% a year against an equal-weight benchmark's 5.6%** in MSCI developed, very
+close to 2×. Emerging is a different story: the best long-only book there is a
+different model (mean-variance, 10.4% against 6.0%), and the Ridge forecaster that
+wins in developed trails the benchmark.
 
 Every macro input is lagged one month before it is used. FRED-MD's vintage for
 month M is not published until the middle of M+1, so a book positioned for month M
@@ -70,9 +72,11 @@ shapes are comparable; the tables are not.)
 | Ridge Long-Only | 0.16 | 0.20 | 3.64 | 22.88 | 68.67 | 55.5 |
 | Ridge Long-Short | 0.16 | 0.23 | 3.81 | 24.15 | 57.04 | 53.4 |
 
-The regime-conditional **Naive** forecaster — just the regime's historical mean
-return — is the consistent winner, a useful reminder that a good state variable
-beats a fancier model on a noisy one.
+No forecaster wins in both universes. Ridge leads developed on Sharpe (0.71
+long-short, 0.64 long-only) and comes last in emerging (0.16); mean-variance
+long-only leads emerging (0.48). The regime-conditional **Naive** forecaster, just
+the regime's historical mean return, is second and third in emerging but trails
+every fitted model in developed, where its long-only book is below the benchmark.
 
 ![Developed long-short equity curves](results/developed/cumulative_long_short.png)
 
