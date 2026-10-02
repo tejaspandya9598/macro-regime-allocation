@@ -22,6 +22,32 @@ from 0 to 100bps, and its net Sharpe degrades gently — 0.68 to 0.51 across a 2
 move in the cost assumption — while the frictionless book falls from 0.36 to
 **−0.86**. See [Trading costs](#trading-costs-the-convex-layer).
 
+> **Correction (2026-10-02): the regime labels were fitted in-sample.** The detector is
+> fitted once on 1959–2023 and the backtest trades 2005–2025 on those labels, so for
+> 2005–2023 each month's regime came from clusters that had seen the following years.
+> The publication lag above fixed a different leak. Refitting the detector every January
+> on data through the previous November ([`scripts/walkforward_regimes.py`](scripts/walkforward_regimes.py))
+> changes the regime-aware rows and leaves MVO and equal weight untouched, as it must:
+>
+> | Sharpe (ann. return %) | developed, as published | developed, walk-forward | emerging, walk-forward |
+> |---|--:|--:|--:|
+> | Ridge long-only | 0.645 (11.2) | **0.348 (6.8)** | 0.217 (5.0) |
+> | Naive long-only | 0.359 (6.4) | 0.591 (9.3) | **0.618 (11.9)** |
+> | Naive long-short | 0.518 (10.2) | **0.768 (12.9)** | **0.733 (14.6)** |
+> | MVO long-only (no regimes) | 0.591 (10.6) | 0.591 (10.6) | 0.478 (10.4) |
+> | Equal weight | 0.377 (5.6) | 0.377 (5.6) | 0.310 (6.0) |
+>
+> The headline "11.2% against 5.6%" does not survive: the Ridge book it describes falls
+> below equal weight. The plain regime-mean forecaster gets better, and leads both
+> universes long-short. In developed long-only, regimes add nothing over mean-variance.
+>
+> The cost-aware layer, re-run the same way ([`scripts/walkforward_costs.py`](scripts/walkforward_costs.py)),
+> keeps its developed result: MultiPeriod net Sharpe 0.697 / 0.616 / 0.503 at 0 / 10 /
+> 100 bps (published: 0.676 / 0.644 / 0.508), and the frictionless book falls to −0.275
+> at 100 bps rather than −0.86. In emerging it does not: at 10 bps the frictionless book
+> leads (0.557 against MultiPeriod's 0.374), and MultiPeriod wins only at 100 bps (0.460).
+> The tables below are the published, in-sample-regime run; read them with this note.
+
 ![Detected macro regimes](results/regime_timeline.png)
 
 ## The idea
@@ -269,11 +295,12 @@ caught there rather than guessed at up front. Every `OptimizationResult` records
 which solver actually ran and whether it fell back, so a set of numbers can be
 traced to the code path that produced it.
 
-> **Reproducibility note.** The results above were produced on **MOSEK 11.2.2**
-> under an academic licence — 496 solves per cost level per universe, **zero
-> fallbacks**, including the $p=1.5$ power-cone model. Reproduce with
-> `uv sync --extra mosek` and a licence at `~/mosek/mosek.lic`; without one the
-> policy falls through to CLARABEL and everything still runs.
+> **Reproducibility note.** The tables above were regenerated on 2026-09-02 on
+> **CLARABEL** (494 solves per cost level per universe, all optimal). The first run, in
+> July, used **MOSEK 11.2.2** under an academic licence with zero fallbacks, including
+> the $p=1.5$ power-cone model. Reproduce on MOSEK with `uv sync --extra mosek` and a
+> licence at `~/mosek/mosek.lic`; without one the policy falls through to CLARABEL and
+> everything still runs.
 >
 > **Solver independence.** Every figure above is identical to three decimal places
 > under CLARABEL, which is the expected result for a convex program: the optimum is
@@ -293,7 +320,8 @@ traced to the code path that produced it.
    → KMeans(k=2) to split crisis from typical months → KMeans(k\*) on the typical
    months for the sub-regimes, with k\* chosen by silhouette. Everything is fit on
    the pre-2024 training window; later months are classified out-of-sample via soft
-   probabilities.
+   probabilities. Backtest months before 2024 therefore trade on in-sample labels (see the
+   correction at the top); `scripts/walkforward_regimes.py` refits it year by year.
 3. **Forecasting** (`models/forecast.py`) — regime-conditional expected returns,
    either the regime's sample mean (*Naive*) or a per-regime *Ridge* on the PCA
    factors.
@@ -412,5 +440,5 @@ chart.
 
 ---
 
-Built by Tejas Pandya. The methodology grew out of a graduate financial-risk-modeling
+Built by Tejas Pandya. The methodology grew out of a graduate financial-risk-modelling
 project; this repository is my own from-scratch reimplementation and packaging.

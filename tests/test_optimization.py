@@ -165,7 +165,21 @@ def test_result_reports_the_solver_that_ran(market):
     assert result.fell_back == (result.solver != "MOSEK")
 
 
-@pytest.mark.skipif("MOSEK" not in cp.installed_solvers(), reason="MOSEK not licensed here")
+def _mosek_licensed() -> bool:
+    """Installed is not licensed: cvxpy lists MOSEK as soon as the package is present,
+    and the licence error only arrives at solve time (2026-10-02: the test failed on a
+    machine with MOSEK installed and no licence instead of skipping)."""
+    if "MOSEK" not in cp.installed_solvers():
+        return False
+    try:
+        x = cp.Variable()
+        cp.Problem(cp.Minimize(x), [x >= 1]).solve(solver="MOSEK")
+        return True
+    except Exception:  # cvxpy's SolverError, or mosek.Error raised straight through
+        return False
+
+
+@pytest.mark.skipif(not _mosek_licensed(), reason="MOSEK not installed or not licensed here")
 @pytest.mark.parametrize("exponent", [2.0, 1.5])
 def test_mosek_and_clarabel_agree(market, exponent):
     """Solver independence: the answer is a property of the problem, not the code path.

@@ -2,7 +2,7 @@
 Three ways to cut the same macro panel into regimes, scored against each other.
 
 The pipeline's own detector is Euclidean K-Means on PCA scores. That is a
-reasonable default and it makes two assumptions worth testing rather than
+reasonable default, and it makes two assumptions worth testing rather than
 assuming:
 
 *Euclidean distance is the right metric.* K-Means compares two months by the
