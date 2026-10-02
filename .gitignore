@@ -17,3 +17,9 @@ __pycache__/
 
 *.pyc
 build/
+
+# single-fit (1959-2023 labels) outputs of `uv run macro-regime`: not out-of-sample results
+results/*/performance_*.csv
+results/*/cost_aware_*.csv
+results/*/cost_sensitivity_*
+results/*/cumulative_*.png

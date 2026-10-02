@@ -1,6 +1,6 @@
 """Walk-forward regime detection: refit each January on data available then.
 
-    uv run python scripts/walkforward_regimes.py    # about 9 minutes
+    uv run python scripts/walkforward_regimes.py    # about 9 minutes -> results/<universe>/walkforward_performance.csv
 
 The production path fits the detector once on 1959..2023-12 and backtests 2005..2025
 on those labels. Here the detector is refit at the start of every backtest year Y on
@@ -49,4 +49,5 @@ for name, path in [("developed", config.MSCI_DEVELOPED_XLSX), ("emerging", confi
     res = {s: {"returns": np.array(d["returns"]), "dates": d["dates"]} for s, d in acc.items()}
     t = comparison_table(res)
     print(f"\n{name} (walk-forward regimes; regimes per refit: {min(ks)}-{max(ks)}; months: {len(res['EqualWeight']['returns'])})")
-    print(t[["Strategy", "Sharpe Ratio", "Ann. Return (%)" if "Ann. Return (%)" in t else t.columns[3]]].round(3).to_string(index=False))
+    print(t.round(3).to_string(index=False))
+    t.to_csv(config.RESULTS_DIR / name / "walkforward_performance.csv", index=False)

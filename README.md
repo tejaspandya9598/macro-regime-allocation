@@ -2,51 +2,22 @@
 
 Detect the prevailing macro regime from 120+ FRED-MD indicators (PCA → two-step
 KMeans), then tilt a global-equity book toward what has historically paid off in
-that regime. On a walk-forward backtest the best regime-aware long-only book earns
-**11.2% a year against an equal-weight benchmark's 5.6%** in MSCI developed, very
-close to 2×. Emerging is a different story: the best long-only book there is a
-different model (mean-variance, 10.4% against 6.0%), and the Ridge forecaster that
-wins in developed trails the benchmark.
+that regime, and ask whether any of it survives trading costs.
 
-Every macro input is lagged one month before it is used. FRED-MD's vintage for
-month M is not published until the middle of M+1, so a book positioned for month M
-can only see M-1. That one line changes the answer everywhere, and most of what
-follows is the shape of the result after it.
+Two things keep the backtest honest. Every macro input is lagged one month, because
+FRED-MD's vintage for month M is not published until the middle of M+1. And the
+regime detector itself is **refitted every January on data through the previous
+November**, so no month is ever labelled by clusters that saw later data. Under those
+rules the plain regime-mean forecaster is the one that works: its long-short book
+earns Sharpe **0.77 in developed and 0.73 in emerging** against 0.38 and 0.31 for
+equal weight. The Ridge forecaster does not beat equal weight in either universe.
 
-A second layer asks whether any of it survives trading costs. Position sizing is
-reformulated as a **convex program with transaction costs inside the objective**
-(cvxpy, MOSEK-first solver policy with an open-source conic fallback) and solved
-over a receding horizon on a Markov-projected regime forecast. With the lag in
-place the receding-horizon book wins at **every** cost level in developed markets,
-from 0 to 100bps, and its net Sharpe degrades gently — 0.68 to 0.51 across a 20×
-move in the cost assumption — while the frictionless book falls from 0.36 to
-**−0.86**. See [Trading costs](#trading-costs-the-convex-layer).
-
-> **Correction (2026-10-02): the regime labels were fitted in-sample.** The detector is
-> fitted once on 1959–2023 and the backtest trades 2005–2025 on those labels, so for
-> 2005–2023 each month's regime came from clusters that had seen the following years.
-> The publication lag above fixed a different leak. Refitting the detector every January
-> on data through the previous November ([`scripts/walkforward_regimes.py`](scripts/walkforward_regimes.py))
-> changes the regime-aware rows and leaves MVO and equal weight untouched, as it must:
->
-> | Sharpe (ann. return %) | developed, as published | developed, walk-forward | emerging, walk-forward |
-> |---|--:|--:|--:|
-> | Ridge long-only | 0.645 (11.2) | **0.348 (6.8)** | 0.217 (5.0) |
-> | Naive long-only | 0.359 (6.4) | 0.591 (9.3) | **0.618 (11.9)** |
-> | Naive long-short | 0.518 (10.2) | **0.768 (12.9)** | **0.733 (14.6)** |
-> | MVO long-only (no regimes) | 0.591 (10.6) | 0.591 (10.6) | 0.478 (10.4) |
-> | Equal weight | 0.377 (5.6) | 0.377 (5.6) | 0.310 (6.0) |
->
-> The headline "11.2% against 5.6%" does not survive: the Ridge book it describes falls
-> below equal weight. The plain regime-mean forecaster gets better, and leads both
-> universes long-short. In developed long-only, regimes add nothing over mean-variance.
->
-> The cost-aware layer, re-run the same way ([`scripts/walkforward_costs.py`](scripts/walkforward_costs.py)),
-> keeps its developed result: MultiPeriod net Sharpe 0.697 / 0.616 / 0.503 at 0 / 10 /
-> 100 bps (published: 0.676 / 0.644 / 0.508), and the frictionless book falls to −0.275
-> at 100 bps rather than −0.86. In emerging it does not: at 10 bps the frictionless book
-> leads (0.557 against MultiPeriod's 0.374), and MultiPeriod wins only at 100 bps (0.460).
-> The tables below are the published, in-sample-regime run; read them with this note.
+The second layer reformulates position sizing as a **convex program with transaction
+costs inside the objective** (cvxpy, MOSEK-first solver policy with an open-source
+conic fallback), solved over a receding horizon on a Markov-projected regime
+forecast. In developed markets its net Sharpe holds between **0.50 and 0.70 from 0 to
+100bps** of cost while the frictionless book falls to −0.28. In emerging the
+frictionless book still leads at 10bps. See [Trading costs](#trading-costs-the-convex-layer).
 
 ![Detected macro regimes](results/regime_timeline.png)
 
@@ -64,47 +35,53 @@ backtest against an equal-weight benchmark across developed and emerging equitie
 
 ## Results
 
-Walk-forward, monthly, 48-month lookback. The MSCI sector panels run 2001-01 to
-2025-10 (10 sectors each); intersected with the FRED-MD regime dates that is 296
-months, less the 48-month lookback and the one-month publication lag, leaving **247
-out-of-sample months**. Sharpe/Sortino are ratios; the rest are percentages.
+Monthly, 48-month lookback. The MSCI sector panels run 2001-01 to 2025-10 (10 sectors
+each); intersected with the FRED-MD regime dates that is 296 months, less the
+48-month lookback and the one-month publication lag, leaving **247 out-of-sample
+months**. The regime detector is refitted at the start of every backtest year on the
+stationary panel through the previous November, and only that year's months are kept
+from each fit (`uv run python scripts/walkforward_regimes.py`, about nine minutes;
+tables in `results/<universe>/walkforward_performance.csv`). Sharpe and Sortino are
+ratios; the rest are percentages.
 
 These are raw strategy returns — nothing here is volatility-scaled, which is why the
-Ann. Vol column ranges from 15% to 24% and why the Sharpe column is the one to read
-across rows. (The *equity-curve charts* are vol-targeted to a common 10% so the
-shapes are comparable; the tables are not.)
+Ann. Vol column ranges from 15% to 25% and why the Sharpe column is the one to read
+across rows.
 
 **Developed markets**
 
 | Strategy | Sharpe | Sortino | Ann. Return | Ann. Vol | Max DD | Hit Rate |
 |---|---|---|---|---|---|---|
-| Ridge Long-Short | **0.71** | 1.02 | 13.98 | 19.66 | 51.67 | 61.1 |
-| MVO Long-Short | 0.67 | 0.85 | 13.48 | 20.22 | 55.25 | 62.3 |
-| Ridge Long-Only | 0.64 | 0.87 | 11.23 | 17.41 | 46.91 | 61.5 |
+| **Naive Long-Short** | **0.77** | 1.24 | 12.87 | 16.77 | 41.97 | 63.2 |
+| MVO Long-Short | 0.67 | 0.85 | 13.44 | 20.23 | 55.06 | 62.3 |
+| Naive Long-Only | 0.59 | 0.84 | 9.35 | 15.81 | 53.40 | 61.9 |
 | MVO Long-Only | 0.59 | 0.72 | 10.61 | 17.93 | 58.79 | 62.3 |
-| Naive Long-Short | 0.52 | 0.65 | 10.25 | 19.80 | 60.72 | 60.7 |
+| Ridge Long-Short | 0.46 | 0.63 | 9.79 | 21.34 | 71.81 | 60.3 |
 | Equal-Weight (benchmark) | 0.38 | 0.46 | 5.64 | 14.96 | 54.95 | 60.7 |
-| Naive Long-Only | 0.36 | 0.45 | 6.36 | 17.71 | 61.30 | 59.9 |
+| Ridge Long-Only | 0.35 | 0.44 | 6.83 | 19.64 | 67.97 | 60.7 |
 
 **Emerging markets**
 
 | Strategy | Sharpe | Sortino | Ann. Return | Ann. Vol | Max DD | Hit Rate |
 |---|---|---|---|---|---|---|
-| MVO Long-Only | **0.48** | 0.67 | 10.41 | 21.80 | 60.93 | 57.9 |
-| Naive Long-Short | 0.43 | 0.58 | 9.44 | 22.09 | 60.50 | 57.9 |
-| Naive Long-Only | 0.37 | 0.49 | 7.47 | 20.00 | 56.20 | 56.7 |
-| MVO Long-Short | 0.36 | 0.48 | 8.54 | 23.90 | 65.18 | 57.9 |
+| **Naive Long-Short** | **0.73** | 1.10 | 14.64 | 19.97 | 38.56 | 61.9 |
+| Naive Long-Only | 0.62 | 0.93 | 11.95 | 19.34 | 42.82 | 58.7 |
+| MVO Long-Only | 0.48 | 0.67 | 10.41 | 21.80 | 60.93 | 57.9 |
+| MVO Long-Short | 0.35 | 0.47 | 8.32 | 23.86 | 65.76 | 57.9 |
 | Equal-Weight (benchmark) | 0.31 | 0.40 | 5.98 | 19.28 | 61.04 | 57.9 |
-| Ridge Long-Only | 0.16 | 0.20 | 3.64 | 22.88 | 68.67 | 55.5 |
-| Ridge Long-Short | 0.16 | 0.23 | 3.81 | 24.15 | 57.04 | 53.4 |
+| Ridge Long-Short | 0.24 | 0.39 | 6.11 | 25.30 | 62.37 | 55.9 |
+| Ridge Long-Only | 0.22 | 0.31 | 5.01 | 23.06 | 56.89 | 55.9 |
 
-No forecaster wins in both universes. Ridge leads developed on Sharpe (0.71
-long-short, 0.64 long-only) and comes last in emerging (0.16); mean-variance
-long-only leads emerging (0.48). The regime-conditional **Naive** forecaster, just
-the regime's historical mean return, is second and third in emerging but trails
-every fitted model in developed, where its long-only book is below the benchmark.
+The simplest forecaster wins. **Naive** — just the regime's historical mean return —
+leads both universes long-short and is the best long-only book in emerging (11.9%
+against 6.0%). Ridge on the PCA factors trails equal weight long-only in both. In
+developed long-only, regimes add nothing over plain mean-variance (both 0.59).
 
-![Developed long-short equity curves](results/developed/cumulative_long_short.png)
+Refitting the detector every year matters. Fitting it once on the whole panel and
+trading on those labels lets each month's regime come from clusters that have seen the
+following years, and that flatters exactly the model with the most freedom to fit
+them: on those labels the Ridge long-only book shows Sharpe 0.65 in developed, against
+0.35 here.
 
 ## Trading costs: the convex layer
 
@@ -120,65 +97,45 @@ three ways of choosing the target book, all debited by the *same* cost model:
 | **CostAware** | single-period convex solve with costs inside the objective |
 | **MultiPeriod** | receding-horizon solve over a Markov-projected forecast path |
 
-**Developed, long-only, net of 10bps linear + 20bps quadratic impact.** 247 months,
-494 solves, all reaching optimality (CLARABEL; MOSEK is preferred but unlicensed here):
+Each strategy is run with the regime detector refitted every year, exactly as above
+(`uv run python scripts/walkforward_costs.py`, about 40 minutes; tables in
+`results/<universe>/walkforward_costs.csv`). Long-only, with quadratic impact set to
+twice the linear cost.
+
+**Developed, net of 10bps linear + 20bps quadratic impact:**
 
 | Strategy | Gross Sharpe | Net Sharpe | Sharpe Lost | Ann. Turnover | Ann. Cost | Net Ann. Return |
 |---|---|---|---|---|---|---|
-| **MultiPeriod** | 0.666 | **0.644** | **0.022** | **1.07×** | **39 bps** | **12.02** |
-| CostAware | 0.545 | 0.498 | 0.047 | 2.03× | 85 bps | 9.26 |
+| **MultiPeriod** | 0.630 | **0.616** | **0.014** | **0.73×** | **25 bps** | **11.34** |
+| CostAware | 0.563 | 0.537 | 0.026 | 1.16× | 44 bps | 9.34 |
+| Frictionless | 0.591 | 0.504 | 0.087 | 3.20× | 139 bps | 7.96 |
 | Equal-Weight | 0.377 | 0.375 | 0.002 | 0.13× | 3 bps | 5.61 |
-| Frictionless | 0.359 | 0.230 | 0.130 | 4.84× | 229 bps | 4.07 |
 
-The receding-horizon book wins on gross Sharpe, on net Sharpe, on turnover, on cost
-drag and on net return at the same time. That is a suspiciously clean sweep, so it
-is worth saying exactly why it happens: the frictionless book's advantage used to
-come from reading the current month's macro data, and once it is made to trade on
-last month's it has less alpha to spend and still spends 4.8× the turnover buying it.
+**Net Sharpe against the assumed cost:**
 
-![Developed cost sensitivity](results/developed/cost_sensitivity_long_only.png)
-
-**Net Sharpe vs the assumed cost, developed:**
-
-| linear bps | Frictionless | CostAware | MultiPeriod | best |
-|---|---|---|---|---|
-| 0 | 0.359 | 0.382 | **0.676** | MultiPeriod |
-| 5 | 0.294 | 0.441 | **0.676** | MultiPeriod |
-| 10 | 0.230 | 0.498 | **0.644** | MultiPeriod |
-| 15 | 0.165 | 0.487 | **0.630** | MultiPeriod |
-| 25 | 0.036 | 0.507 | **0.583** | MultiPeriod |
-| 50 | −0.281 | 0.394 | **0.527** | MultiPeriod |
-| 100 | −0.857 | 0.282 | **0.508** | MultiPeriod |
-
-**And emerging**, where the two lines do still cross:
-
-| linear bps | Frictionless | CostAware | MultiPeriod | best |
-|---|---|---|---|---|
-| 0 | **0.373** | 0.325 | 0.330 | Frictionless |
-| 5 | 0.326 | 0.316 | **0.366** | MultiPeriod |
-| 10 | 0.278 | 0.271 | **0.344** | MultiPeriod |
-| 25 | 0.135 | 0.202 | **0.332** | MultiPeriod |
-| 50 | −0.103 | 0.304 | **0.359** | MultiPeriod |
-| 100 | −0.553 | 0.374 | **0.395** | MultiPeriod |
+| linear bps | universe | Frictionless | CostAware | MultiPeriod | best |
+|---|---|---|---|---|---|
+| 0 | developed | 0.591 | 0.664 | **0.697** | MultiPeriod |
+| 10 | developed | 0.504 | 0.537 | **0.616** | MultiPeriod |
+| 100 | developed | −0.275 | 0.356 | **0.503** | MultiPeriod |
+| 0 | emerging | 0.618 | **0.621** | 0.374 | CostAware |
+| 10 | emerging | **0.557** | 0.432 | 0.374 | Frictionless |
+| 100 | emerging | 0.010 | 0.165 | **0.460** | MultiPeriod |
 
 Three things are worth more than the tables themselves.
 
-1. **The multi-period line barely moves.** Developed net Sharpe runs 0.676 → 0.508
-   across a 20× move in the cost assumption; emerging runs 0.330 → 0.395 and is
-   *higher* at 100bps than at zero, because the optimiser simply trades less when
-   trading is expensive. The impact coefficient here is *assumed*, not fitted from
-   ADV or tick data, so a conclusion that survives a 20× move in that assumption is
-   worth considerably more than a point estimate that doesn't.
-2. **The frictionless line goes properly negative.** −0.86 in developed, −0.55 in
-   emerging. Its apparent edge was an artifact of not paying to trade.
-3. **The crossover moved when the look-ahead came out.** It used to sit between 12.5
-   and 15bps in both universes. In developed it is now below zero — the cost-aware
-   book wins even in a frictionless world — and in emerging it sits between 0 and
-   5bps. A finding about *where* two lines cross is a finding about the alpha
-   feeding them, and half that alpha was information the strategy could not have had.
-
-Same or better net annual return at a fifth to a quarter of the turnover is also the
-capacity argument: the multi-period book is the one that could be run at size.
+1. **In developed the multi-period line barely moves.** Net Sharpe runs 0.697 → 0.503
+   across the whole range, while the frictionless book goes from 0.591 to −0.275,
+   paying 13.9% a year in cost at 100bps. The impact coefficient here is *assumed*, not
+   fitted from ADV or tick data, so a conclusion that survives a large move in that
+   assumption is worth more than a point estimate that doesn't.
+2. **In emerging it does not win at realistic costs.** At 10bps the frictionless book
+   leads (0.557 against 0.374); the receding-horizon book only comes out ahead at
+   100bps, where it trades a tenth as much. Its forecast path smooths away a signal that
+   is worth trading in that universe when trading is cheap.
+3. **Turnover is the capacity argument.** At 10bps in developed the multi-period book
+   earns the best net return on a quarter of the frictionless book's turnover, so it is
+   the one that could be run at size.
 
 ## Is K-Means the right cut? (`regimes/comparison.py`)
 
@@ -295,16 +252,13 @@ caught there rather than guessed at up front. Every `OptimizationResult` records
 which solver actually ran and whether it fell back, so a set of numbers can be
 traced to the code path that produced it.
 
-> **Reproducibility note.** The tables above were regenerated on 2026-09-02 on
-> **CLARABEL** (494 solves per cost level per universe, all optimal). The first run, in
-> July, used **MOSEK 11.2.2** under an academic licence with zero fallbacks, including
-> the $p=1.5$ power-cone model. Reproduce on MOSEK with `uv sync --extra mosek` and a
-> licence at `~/mosek/mosek.lic`; without one the policy falls through to CLARABEL and
-> everything still runs.
+> **Reproducibility note.** The tables above were produced on 2026-10-02 on
+> **CLARABEL**, since MOSEK is unlicensed on the run machine. Reproduce on MOSEK with
+> `uv sync --extra mosek` and a licence at `~/mosek/mosek.lic`; without one the policy
+> falls through to CLARABEL and everything still runs.
 >
-> **Solver independence.** Every figure above is identical to three decimal places
-> under CLARABEL, which is the expected result for a convex program: the optimum is
-> a property of the problem, not of the code path. A parametrised regression test
+> **Solver independence.** For a convex program the optimum is a property of the
+> problem, not of the code path. A parametrised regression test
 > (`test_mosek_and_clarabel_agree`, over both the QP and the power cone) pins the
 > two solvers to `atol=1e-3` on weights and `rtol=1e-6` on the objective, and skips
 > itself when MOSEK isn't licensed. Measured agreement on the reference problem is
@@ -318,10 +272,10 @@ traced to the code path that produced it.
    series are dropped before clustering.
 2. **Regime detection** (`regimes/detection.py`) — standardise → PCA (95% variance)
    → KMeans(k=2) to split crisis from typical months → KMeans(k\*) on the typical
-   months for the sub-regimes, with k\* chosen by silhouette. Everything is fit on
-   the pre-2024 training window; later months are classified out-of-sample via soft
-   probabilities. Backtest months before 2024 therefore trade on in-sample labels (see the
-   correction at the top); `scripts/walkforward_regimes.py` refits it year by year.
+   months for the sub-regimes, with k\* chosen by silhouette. For the reported
+   results the detector is refitted every January on data through the previous
+   November (`scripts/walkforward_regimes.py`); months after each cutoff are classified
+   via soft probabilities.
 3. **Forecasting** (`models/forecast.py`) — regime-conditional expected returns,
    either the regime's sample mean (*Naive*) or a per-regime *Ridge* on the PCA
    factors.
@@ -395,6 +349,12 @@ macro-regime-allocation/
 
 ```bash
 uv sync                 # create the env from pyproject.toml
+
+# the reported results: detector refitted every year
+uv run python scripts/walkforward_regimes.py   # ~9 min  -> results/<universe>/walkforward_performance.csv
+uv run python scripts/walkforward_costs.py     # ~40 min -> results/<universe>/walkforward_costs.csv
+
+# the pipeline with a single detector fit (1959-2023), used for the regime timeline
 uv run macro-regime     # run both universes -> results/
 
 # options
@@ -410,10 +370,11 @@ uv run macro-regime --costs --long-short --horizon 6
 uv sync --extra mosek
 ```
 
-Outputs land in `results/<universe>/` (performance CSVs + cumulative-return charts)
-plus a shared `results/regime_timeline.png`. The `--costs` run adds
-`cost_aware_<sleeve>.csv`, `cost_sensitivity_<sleeve>.csv` and the sensitivity
-chart.
+`uv run macro-regime` fits the detector once on 1959–2023 and labels every month
+with it, so its performance and cost files are not out-of-sample results; they are
+not committed. It writes `results/regime_timeline.png`, the regime history shown at
+the top, and the `--costs` flags exercise the same convex machinery the walk-forward
+scripts use.
 
 ## Data
 
@@ -424,12 +385,12 @@ chart.
 ## Notes & caveats
 
 - Returns are monthly log returns and execution is assumed at month-end. The
-  headline tables are **gross**; the `--costs` path reports net-of-cost results with
-  turnover tracked through weight drift.
+  results tables are **gross**; the cost tables are net, with turnover tracked
+  through weight drift.
 - The cost parameters are **stylised, not calibrated** — monthly index returns carry
   no microstructure to fit impact against, so there is no ADV or spread series
   behind $\kappa$ and $\eta$. That is precisely why the result is framed as a
-  sensitivity band and a crossover rather than a single net-Sharpe number.
+  sensitivity band rather than a single net-Sharpe number.
 - The Markov projection is first-order. Regime durations in the data are not truly
   geometric, and a semi-Markov / duration-aware chain would fit the tails better; it
   is enough to give the horizon a defensible shape, which is all the optimiser needs.

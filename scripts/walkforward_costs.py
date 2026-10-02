@@ -1,6 +1,6 @@
 """Cost-aware layer with walk-forward regime refits (see walkforward_regimes.py).
 
-    uv run python scripts/walkforward_costs.py      # about 40 minutes
+    uv run python scripts/walkforward_costs.py      # about 40 minutes -> results/<universe>/walkforward_costs.csv
 
 Each January the detector is refit on data through November of the prior year; the
 cost-aware backtest runs on those labels and only that year's months are kept. Book
@@ -17,6 +17,7 @@ from macro_regime.models.optimization import CostModel
 logging.disable(logging.WARNING)
 for name, path in [("developed", config.MSCI_DEVELOPED_XLSX), ("emerging", config.MSCI_EMERGING_XLSX)]:
     msci = MSCIReturns(path); msci.load(); assets = [c for c in msci.returns.columns if c != "date"]
+    rows = []
     fits = {Y: labelled(pd.Timestamp(f"{Y-1}-11-30"))[0] for Y in range(2004, 2026)}
     for bps in (0.0, 10.0, 100.0):
         acc = {}
@@ -30,3 +31,5 @@ for name, path in [("developed", config.MSCI_DEVELOPED_XLSX), ("emerging", confi
         res = {s: {**{k: np.array(v) for k, v in d.items() if k != "dates"}, "dates": d["dates"], "solvers": []} for s, d in acc.items()}
         t = cost_summary(res)
         print(f"{name} {bps:>5.0f}bps  " + "  ".join(f"{r.Strategy} {r._3:.3f}" for r in t.itertuples()), flush=True)
+        rows.append(t.assign(**{"Linear bps": bps}))
+    pd.concat(rows).to_csv(config.RESULTS_DIR / name / "walkforward_costs.csv", index=False)
